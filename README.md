@@ -44,8 +44,9 @@ The application running at the post_url will receive a post http request with th
 
 License
 ========
-This module is completely based on mod\_interact by Adam Duke <adam.v.duke@gmail.com>, which was almost entirely based on mod\_offline\_prowl written by Robert George <rgeorge@midnightweb.net>
+This module is completely based on mod\_interact by Adam Duke <adam.v.duke@gmail.com>, which was almost entirely based on mod\_offline\_prowl written by Robert George <rgeorge@midnightweb.net>.
 They retain the original author's license.
 
 The original repository of mod\_interact by Adam Duke can be found [here](https://github.com/adamvduke/mod_interact)
+
 And the original post about mod\_offline\_prowl can be found [here](http://www.unsleeping.com/2010/07/31/prowl-module-for-ejabberd/)
