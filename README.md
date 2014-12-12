@@ -1,7 +1,7 @@
 Purpose:
 =========
 
-Forward chat messages as post requests to an arbitrary url.
+Used in ejabberd chat server to forward chat messages as post requests to an arbitrary url.
 
 Note:
 ==========
