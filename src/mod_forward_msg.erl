@@ -32,9 +32,11 @@
 -behaviour(gen_mod).
 
 -export([start/2,
-  init/2,
-  stop/1,
-  send_notice/3]).
+	init/2,
+	stop/1,
+	send_post_message/3,
+	send_post_status_on/4,
+	send_post_status_off/4]).
 
 -define(PROCNAME, ?MODULE).
 
@@ -44,81 +46,110 @@
 
 start(Host, Opts) ->
 %%% ?INFO_MSG("Starting mod_forward_msg", [] ),
-  register(?PROCNAME,spawn(?MODULE, init, [Host, Opts])),
-  ok.
+	register(?PROCNAME,spawn(?MODULE, init, [Host, Opts])),
+	ok.
 
 init(Host, _Opts) ->
-  inets:start(),
-  ssl:start(),
-  ejabberd_hooks:add(user_send_packet, Host, ?MODULE, send_notice, 10),
-  ok.
+	inets:start(),
+	ssl:start(),
+	ejabberd_hooks:add(user_send_packet, Host, ?MODULE, send_post_message, 10),
+	ejabberd_hooks:add(set_presence_hook, Host, ?MODULE, send_post_status_on, 10),
+	ejabberd_hooks:add(unset_presence_hook, Host, ?MODULE, send_post_status_off, 10),
+	ok.
 
 stop(Host) ->
 %%% ?INFO_MSG("Stopping mod_forward_msg", [] ),
-  ejabberd_hooks:delete(user_send_packet, Host,
-       ?MODULE, send_notice, 10),
-  ok.
+	ejabberd_hooks:delete(user_send_packet, Host, ?MODULE, send_post_message, 10),
+	ejabberd_hooks:delete(set_presence_hook, Host, ?MODULE, send_post_status_on, 10),
+	ejabberd_hooks:delete(unset_presence_hook, Host, ?MODULE, send_post_status_off, 10),
+	ok.
 
-send_notice(From, To, Packet) ->
-  Type = xml:get_tag_attr_s(list_to_binary("type"), Packet),
-  Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
-  Token = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-  PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+send_post_message(From, To, Packet) ->
+	Type = xml:get_tag_attr_s(list_to_binary("type"), Packet),
+	Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
+	Token = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+	PostChatUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_chat_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
-  if (Type == <<"chat">>) and (Body /= <<"">>) ->
-    Sep = "&",
-    Post = [
-      "to=", To#jid.luser, Sep,
-      "from=", From#jid.luser, Sep,
-      "body=", url_encode(binary_to_list(Body)), Sep,
-      "access_token=", Token],
-%%%     ?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostUrl, Post]),
-    httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
-    ok;
-    true ->
-      ok
-  end.
+	if
+		(Type == <<"chat">>) and (Body /= <<"">>) ->
+			Sep = "&",
+			Post = [
+				"to=", To#jid.luser, Sep,
+				"from=", From#jid.luser, Sep,
+				"body=", url_encode(binary_to_list(Body)), Sep,
+				"access_token=", Token],
+%%%				?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostChatUrl, Post]),
+				httpc:request(post, {binary_to_list(PostChatUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
+			ok;
+		true ->
+			ok
+	end.
 
+send_post_status_on(User, Server, Resource, Packet) ->
+	Jid = jlib:make_jid(User, Server, Resource),
+	Token = gen_mod:get_module_opt(Jid#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+	PostStatusUrl = gen_mod:get_module_opt(Jid#jid.lserver, ?MODULE, post_status_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+	Sep = "&",
+	Post = [
+		"user_id=", Jid#jid.luser, Sep,
+		"status=", "busy", Sep,
+		"access_token=", Token],
+%%% 	?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostStatusUrl, Post]),
+	httpc:request(post, {binary_to_list(PostStatusUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
+	none.
+
+send_post_status_off(User, Server, Resource, Packet) ->
+	Jid = jlib:make_jid(User, Server, Resource),
+	Token = gen_mod:get_module_opt(Jid#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+	PostStatusUrl = gen_mod:get_module_opt(Jid#jid.lserver, ?MODULE, post_status_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+	Sep = "&",
+	Post = [
+		"user_id=", Jid#jid.luser, Sep,
+		"status=", "offline", Sep,
+		"access_token=", Token],
+%%% 	?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostStatusUrl, Post]),
+	httpc:request(post, {binary_to_list(PostStatusUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
+	none.
 
 %%% The following url encoding code is from the yaws project and retains it's original license.
 %%% https://github.com/klacke/yaws/blob/master/LICENSE
 %%% Copyright (c) 2006, Claes Wikstrom, klacke@hyber.org
 %%% All rights reserved.
 url_encode([H|T]) when is_list(H) ->
-  [url_encode(H) | url_encode(T)];
+	[url_encode(H) | url_encode(T)];
 url_encode([H|T]) ->
-  if
-    H >= $a, $z >= H ->
-      [H|url_encode(T)];
-    H >= $A, $Z >= H ->
-      [H|url_encode(T)];
-    H >= $0, $9 >= H ->
-      [H|url_encode(T)];
-    H == $_; H == $.; H == $-; H == $/; H == $: -> % FIXME: more..
-      [H|url_encode(T)];
-    true ->
-      case integer_to_hex(H) of
-        [X, Y] ->
-          [$%, X, Y | url_encode(T)];
-        [X] ->
-          [$%, $0, X | url_encode(T)]
-      end
-  end;
+	if
+		H >= $a, $z >= H ->
+			[H|url_encode(T)];
+		H >= $A, $Z >= H ->
+			[H|url_encode(T)];
+		H >= $0, $9 >= H ->
+			[H|url_encode(T)];
+		H == $_; H == $.; H == $-; H == $/; H == $: -> % FIXME: more..
+			[H|url_encode(T)];
+		true ->
+			case integer_to_hex(H) of
+				[X, Y] ->
+					[$%, X, Y | url_encode(T)];
+				[X] ->
+					[$%, $0, X | url_encode(T)]
+			end
+	end;
 
 url_encode([]) ->
-  [].
+	[].
 
 integer_to_hex(I) ->
-  case catch erlang:integer_to_list(I, 16) of
-    {'EXIT', _} -> old_integer_to_hex(I);
-    Int         -> Int
-  end.
+	case catch erlang:integer_to_list(I, 16) of
+		{'EXIT', _} -> old_integer_to_hex(I);
+		Int         -> Int
+	end.
 
 old_integer_to_hex(I) when I < 10 ->
-  integer_to_list(I);
+	integer_to_list(I);
 old_integer_to_hex(I) when I < 16 ->
-  [I-10+$A];
+	[I-10+$A];
 old_integer_to_hex(I) when I >= 16 ->
-  N = trunc(I/16),
-  old_integer_to_hex(N) ++ old_integer_to_hex(I rem 16).
+	N = trunc(I/16),
+	old_integer_to_hex(N) ++ old_integer_to_hex(I rem 16).
 
