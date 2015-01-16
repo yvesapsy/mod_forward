@@ -87,16 +87,22 @@ send_post_message(From, To, Packet) ->
 
 send_post_status_on(User, Server, Resource, Packet) ->
 	Jid = jlib:make_jid(User, Server, Resource),
+	Status = xml:get_path_s(Packet, [{elem, list_to_binary("status")}, cdata]),
 	Token = gen_mod:get_module_opt(Jid#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 	PostStatusUrl = gen_mod:get_module_opt(Jid#jid.lserver, ?MODULE, post_status_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 	Sep = "&",
-	Post = [
-		"user_id=", Jid#jid.luser, Sep,
-		"status=", "busy", Sep,
-		"access_token=", Token],
-%%% 	?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostStatusUrl, Post]),
-	httpc:request(post, {binary_to_list(PostStatusUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
-	none.
+	if
+		(Status /= <<"">>) ->
+			Post = [
+				"user_id=", Jid#jid.luser, Sep,
+				"status=", Status, Sep,
+				"access_token=", Token],
+%%% 			?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostStatusUrl, Post]),
+			httpc:request(post, {binary_to_list(PostStatusUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
+			none;
+		true ->
+			none
+	end.
 
 send_post_status_off(User, Server, Resource, Packet) ->
 	Jid = jlib:make_jid(User, Server, Resource),
@@ -105,7 +111,7 @@ send_post_status_off(User, Server, Resource, Packet) ->
 	Sep = "&",
 	Post = [
 		"user_id=", Jid#jid.luser, Sep,
-		"status=", "offline", Sep,
+		"status=", "Not Available", Sep,
 		"access_token=", Token],
 %%% 	?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostStatusUrl, Post]),
 	httpc:request(post, {binary_to_list(PostStatusUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
