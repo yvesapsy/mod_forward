@@ -29,11 +29,12 @@
 -module(mod_forward_msg).
 -author('contact@yvesapsy.com').
 
--behaviour(gen_mod).
+%%% -behaviour(gen_mod).
 
 -export([start/2,
 	init/2,
 	stop/1,
+	send_httpc_post/2,
 	send_offline_message/3,
 	send_post_message/3,
 	send_post_status_on/4,
@@ -60,11 +61,20 @@ init(Host, _Opts) ->
 	ok.
 
 stop(Host) ->
-%%% ?INFO_MSG("Stopping mod_forward_msg", [] ),
 	ejabberd_hooks:delete(offline_message_hok, Host, ?MODULE, send_offline_message, 10),
 	ejabberd_hooks:delete(user_send_packet, Host, ?MODULE, send_post_message, 10),
 	ejabberd_hooks:delete(set_presence_hook, Host, ?MODULE, send_post_status_on, 10),
 	ejabberd_hooks:delete(unset_presence_hook, Host, ?MODULE, send_post_status_off, 10),
+	ok.
+
+send_httpc_post(PostUrl, PostVars) ->
+	{ok, RequestId} = httpc:request(
+		post,
+		{binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(PostVars)},
+		[],
+		%%% [], %%% synchronous 
+		[{sync,false},{receiver, fun(ReplyInfo) -> ReplyInfo end}] %%% asynchronous
+	),
 	ok.
 
 send_offline_message(From, To, Packet) ->
@@ -73,43 +83,41 @@ send_offline_message(From, To, Packet) ->
 	Token = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 	PostChatUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_chat_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
-	if
-		(Type == <<"chat">>) and (Body /= <<"">>) ->
-			Sep = "&",
-			Post = [
-				"to=", To#jid.luser, Sep,
-				"from=", From#jid.luser, Sep,
-				"body=", url_encode(binary_to_list(Body)), Sep,
-				"offline=true", Sep,
-				"access_token=", Token],
-%%%				?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostChatUrl, Post]),
-				httpc:request(post, {binary_to_list(PostChatUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
-			ok;
-		true ->
-			ok
+	if (Type == <<"chat">>) and (Body /= <<"">>) ->
+		Sep = "&",
+		Post = [
+			"to=", To#jid.luser, Sep,
+			"from=", From#jid.luser, Sep,
+			"body=", url_encode(binary_to_list(Body)), Sep,
+			"offline=true", Sep,
+			"access_token=", Token
+		],
+		send_httpc_post(PostChatUrl, Post),
+		ok;
+	true ->
+		ok
 	end.
 
 
 send_post_message(From, To, Packet) ->
 	Type = xml:get_tag_attr_s(list_to_binary("type"), Packet),
 	Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
-	Token = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 	PostChatUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_chat_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+	Token = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
-	if
-		(Type == <<"chat">>) and (Body /= <<"">>) ->
-			Sep = "&",
-			Post = [
-				"to=", To#jid.luser, Sep,
-				"from=", From#jid.luser, Sep,
-				"body=", url_encode(binary_to_list(Body)), Sep,
-				"offline=true", Sep,
-				"access_token=", Token],
-%%%				?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostChatUrl, Post]),
-				httpc:request(post, {binary_to_list(PostChatUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
-			ok;
-		true ->
-			ok
+	if (Type == <<"chat">>) and (Body /= <<"">>) ->
+		Sep = "&",
+		Post = [
+			"to=", To#jid.luser, Sep,
+			"from=", From#jid.luser, Sep,
+			"body=", url_encode(binary_to_list(Body)), Sep,
+			"offline=true", Sep,
+			"access_token=", Token
+		],
+		send_httpc_post(PostChatUrl, Post),
+		ok;
+	true ->
+		ok
 	end.
 
 send_post_status_on(User, Server, Resource, Packet) ->
@@ -117,18 +125,18 @@ send_post_status_on(User, Server, Resource, Packet) ->
 	Status = xml:get_path_s(Packet, [{elem, list_to_binary("status")}, cdata]),
 	Token = gen_mod:get_module_opt(Jid#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 	PostStatusUrl = gen_mod:get_module_opt(Jid#jid.lserver, ?MODULE, post_status_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-	Sep = "&",
-	if
-		(Status /= <<"">>) ->
-			Post = [
-				"user_id=", Jid#jid.luser, Sep,
-				"status=", Status, Sep,
-				"access_token=", Token],
-%%% 			?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostStatusUrl, Post]),
-			httpc:request(post, {binary_to_list(PostStatusUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
-			none;
-		true ->
-			none
+
+	if (Status /= <<"">>) ->
+		Sep = "&",
+		Post = [
+			"user_id=", Jid#jid.luser, Sep,
+			"status=", Status, Sep,
+			"access_token=", Token
+		],
+		send_httpc_post(PostStatusUrl, Post),
+		ok;
+	true ->
+		ok
 	end.
 
 send_post_status_off(User, Server, Resource, Packet) ->
@@ -139,9 +147,9 @@ send_post_status_off(User, Server, Resource, Packet) ->
 	Post = [
 		"user_id=", Jid#jid.luser, Sep,
 		"status=", "Not Available", Sep,
-		"access_token=", Token],
-%%% 	?INFO_MSG("Sending post request to ~s with body \"~s\"", [PostStatusUrl, Post]),
-	httpc:request(post, {binary_to_list(PostStatusUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)},[],[]),
+		"access_token=", Token
+	],
+	send_httpc_post(PostStatusUrl, Post),
 	none.
 
 %%% The following url encoding code is from the yaws project and retains it's original license.
